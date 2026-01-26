@@ -50,7 +50,12 @@ router.post("/upload", upload.single("file"), async (req, res) => {
       .json({ error: "Only .txt and .md are supported for now" });
   }
 
-  const docId = addDocument({ name: originalName, status: "processing" });
+  const docId = addDocument({
+    name: originalName,
+    status: "processing",
+    chunkSize,
+    overlap,
+  });
 
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
@@ -66,7 +71,7 @@ router.post("/upload", upload.single("file"), async (req, res) => {
     }));
 
     upsertChunks(items);
-    updateDocumentStatus(docId, "ready");
+    updateDocumentStatus(docId, "ready", { chunkCount: items.length });
 
     res.json({
       id: docId,
@@ -75,7 +80,9 @@ router.post("/upload", upload.single("file"), async (req, res) => {
       chunks: items.length,
     });
   } catch (e: any) {
-    updateDocumentStatus(docId, "failed");
+    updateDocumentStatus(docId, "failed", {
+      error: e?.message ?? "upload processing failed",
+    });
     res.status(500).json({ error: e?.message ?? "upload processing failed" });
   }
 });

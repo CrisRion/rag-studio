@@ -7,6 +7,11 @@ export type DocumentItem = {
   name: string;
   status: "uploaded" | "processing" | "ready" | "failed";
   createdAt: number;
+
+  error?: string;
+  chunkCount?: number;
+  chunkSize?: number;
+  overlap?: number;
 };
 
 type DocState = {
@@ -29,7 +34,14 @@ export const useDocStore = create<DocState>((set, get) => ({
     set({ loading: true, error: undefined });
     try {
       const docs = (await getDocuments()) as DocumentItem[];
-      set({ documents: docs, loading: false });
+
+      set({
+        documents: docs.map((d) => ({
+          ...d,
+          createdAt: Number(d.createdAt),
+        })),
+        loading: false,
+      });
     } catch (e: unknown) {
       set({
         loading: false,
