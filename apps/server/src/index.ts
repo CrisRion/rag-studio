@@ -16,7 +16,12 @@ import { chatRouter } from "./routes/chat.js";
 const app = express();
 
 // 允许前端跨域（开发阶段）
-app.use(cors());
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN ?? true,
+    credentials: true,
+  }),
+);
 app.use(express.json());
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
