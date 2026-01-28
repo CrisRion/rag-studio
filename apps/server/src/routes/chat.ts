@@ -29,6 +29,19 @@ chatRouter.get("/stream", async (req, res) => {
     // 1) retrieve
     const sources = await retrieveTopK(question, topK);
 
+    //无检索结果直接返回（不进 LLM）
+    if (!sources || sources.length === 0) {
+      res.write(`event: done\n`);
+      res.write(
+        `data: ${JSON.stringify({
+          answer:
+            "在当前知识库中没有检索到相关内容，我无法依据文档回答。你可以尝试换关键词或先上传相关文档。",
+          sources: [],
+        })}\n\n`,
+      );
+      return res.end();
+    }
+
     const finalSources = sources.map((s) => ({
       docId: s.chunk.docId,
       chunkId: s.chunk.id,
@@ -76,8 +89,14 @@ chatRouter.get("/stream", async (req, res) => {
         : typeof e === "string"
           ? e
           : "stream error";
+
     res.write(`event: error\n`);
-    res.write(`data: ${JSON.stringify({ message })}\n\n`);
+    res.write(
+      `data: ${JSON.stringify({
+        code: "STREAM_FAILED",
+        message,
+      })}\n\n`,
+    );
     res.end();
   }
 });
