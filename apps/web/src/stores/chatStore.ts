@@ -67,7 +67,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       if (evt.type === "error") {
-        set({ isGenerating: false, stop: undefined, error: evt.data.message });
+        const msg = evt.data?.message || "生成失败";
+        set({
+          isGenerating: false,
+          stop: undefined,
+          error: msg,
+        });
+
+        close?.();
       }
     });
 

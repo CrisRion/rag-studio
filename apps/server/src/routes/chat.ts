@@ -3,6 +3,37 @@ import { getQwenClient, QWEN_MODEL } from "../llm/qwen.js";
 import { retrieveTopK } from "../rag/retrieve.js";
 import { buildPrompt } from "../rag/prompt.js";
 
+type CachedStreamDone = {
+  answer: string;
+  sources: { docId: string; chunkId: string; score: number; snippet: string }[];
+  ts: number;
+};
+
+const QUERY_CACHE_TTL_MS = 30_000;
+const queryCache = new Map<string, CachedStreamDone>();
+
+function cacheKey(question: string, topK: number) {
+  return `${topK}::${question.trim()}`;
+}
+
+function getCached(key: string) {
+  const v = queryCache.get(key);
+  if (!v) return null;
+  if (Date.now() - v.ts > QUERY_CACHE_TTL_MS) {
+    queryCache.delete(key);
+    return null;
+  }
+  return v;
+}
+
+function setCached(
+  key: string,
+  answer: string,
+  sources: CachedStreamDone["sources"],
+) {
+  queryCache.set(key, { answer, sources, ts: Date.now() });
+}
+
 export const chatRouter = Router();
 
 /**
@@ -17,6 +48,29 @@ chatRouter.get("/stream", async (req, res) => {
 
   if (!question) {
     return res.status(400).json({ message: "question is required" });
+  }
+
+  // query cache (question + topK)
+  const key = cacheKey(question, topK);
+  const cached = getCached(key);
+  if (cached) {
+    // 走 SSE 标准返回
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+    res.write(`event: meta\n`);
+    res.write(`data: ${JSON.stringify({ cached: true })}\n\n`);
+
+    // 直接 done
+    res.write(`event: done\n`);
+    res.write(
+      `data: ${JSON.stringify({
+        answer: cached.answer,
+        sources: cached.sources,
+      })}\n\n`,
+    );
+    return res.end();
   }
 
   // SSE headers
@@ -56,6 +110,7 @@ chatRouter.get("/stream", async (req, res) => {
     });
 
     // 3) qwen stream
+    let answer = "";
     const qwen = getQwenClient();
     const stream = await qwen.chat.completions.create({
       model: QWEN_MODEL,
@@ -74,13 +129,21 @@ chatRouter.get("/stream", async (req, res) => {
     for await (const part of stream) {
       const token = part.choices?.[0]?.delta?.content ?? "";
       if (token) {
+        answer += token;
         res.write(`event: token\n`);
         res.write(`data: ${JSON.stringify({ token })}\n\n`);
       }
     }
 
+    setCached(key, answer, finalSources);
+
     res.write(`event: done\n`);
-    res.write(`data: ${JSON.stringify({ sources: finalSources })}\n\n`);
+    res.write(
+      `data: ${JSON.stringify({
+        answer,
+        sources: finalSources,
+      })}\n\n`,
+    );
     res.end();
   } catch (e: unknown) {
     const message =
